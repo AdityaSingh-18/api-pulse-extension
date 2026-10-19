@@ -34,10 +34,16 @@ import {
   DEFAULT_ANALYZER_SETTINGS,
   normalizeAnalyzerSettings,
   SETTINGS_STORAGE_KEY,
+  SLOW_REQUEST_THRESHOLDS_MS,
   type AnalyzerSettings,
 } from "./lib/analyzer-settings";
 
-type RequestFilter = "all" | "4xx" | "5xx" | "network";
+type RequestFilter =
+  | "all"
+  | "4xx"
+  | "5xx"
+  | "network"
+  | "slow";
 
 const ApiFilters: {
   label: string;
@@ -47,6 +53,7 @@ const ApiFilters: {
   { label: "4xx", value: "4xx" },
   { label: "5xx", value: "5xx" },
   { label: "Network", value: "network" },
+  { label: "Slow", value: "slow" },
 ];
 
 function formatDuration(
@@ -74,11 +81,16 @@ function getRequestBadgeClass(
     return "border-rose-400/20 bg-rose-400/10 text-rose-200";
   }
 
-  return "border-orange-400/20 bg-orange-400/10 text-orange-200";
+  if ((request.status ?? 0) >= 400) {
+    return "border-orange-400/20 bg-orange-400/10 text-orange-200";
+  }
+
+  return "border-amber-400/20 bg-amber-400/10 text-amber-200";
 }
 
 interface GroupedRequest extends CapturedRequest {
   count: number;
+  slowCount: number;
 }
 
 function groupDuplicateRequests(
@@ -99,10 +111,13 @@ function groupDuplicateRequests(
 
     if (existing) {
       existing.count += 1;
+      existing.slowCount += request.isSlow ? 1 : 0;
+      existing.isSlow = existing.isSlow || request.isSlow;
     } else {
       groups.set(key, {
         ...request,
         count: 1,
+        slowCount: request.isSlow ? 1 : 0,
       });
     }
   }
@@ -327,6 +342,20 @@ export default function App() {
           !settings.ignoredStatusCodes.includes(request.status)
         );
       })
+      .filter((request) => {
+        if (request.kind === "network") {
+          return settings.includeNetworkErrors;
+        }
+
+        if (request.isSlow) {
+          return true;
+        }
+
+        return (
+          request.status === null ||
+          !settings.ignoredStatusCodes.includes(request.status)
+        );
+      })
       .sort((a, b) => b.timestamp - a.timestamp);
   }, [monitoringState.requests, activeTabId, settings]);
 
@@ -339,7 +368,8 @@ export default function App() {
           (request) =>
             request.kind === "http" &&
             (request.status ?? 0) >= 400 &&
-            (request.status ?? 0) < 500,
+            (request.status ?? 0) < 500 && 
+            !settings.ignoredStatusCodes.includes(request.status ?? 0),
         );
         break;
 
@@ -348,13 +378,20 @@ export default function App() {
           (request) =>
             request.kind === "http" &&
             (request.status ?? 0) >= 500 &&
-            (request.status ?? 0) < 600,
+            (request.status ?? 0) < 600 &&
+            !settings.ignoredStatusCodes.includes(request.status ?? 0),
         );
         break;
 
       case "network":
         matchingRequests = currentTabRequests.filter(
           (request) => request.kind === "network",
+        );
+        break;
+
+      case "slow":
+        matchingRequests = currentTabRequests.filter(
+          (request) => request.isSlow,
         );
         break;
 
@@ -393,6 +430,7 @@ export default function App() {
       `Error: ${request.error ?? "N/A"}`,
       `Duration: ${formatDuration(request.durationMs)}`,
       `Occurrences: ${request.count}`,
+      `Slow occurrences: ${request.slowCount}`,
       `Last observed: ${new Date(request.timestamp).toISOString()}`,
     ].join("\n");
 
@@ -505,6 +543,7 @@ export default function App() {
         error: request.error,
         durationMs: request.durationMs,
         occurrences: request.count,
+        slowOccurrences: request.slowCount,
         lastObserved: new Date(request.timestamp).toISOString(),
       })),
     };
@@ -531,6 +570,7 @@ export default function App() {
       "error",
       "duration_ms",
       "occurrences",
+      "slow_occurrences",
       "last_observed",
       "page_load_ms",
       "dom_content_loaded_ms",
@@ -546,14 +586,13 @@ export default function App() {
         request.error,
         request.durationMs,
         request.count,
+        request.slowCount,
         new Date(request.timestamp).toISOString(),
         pageMetrics?.loadMs ?? null,
         pageMetrics?.domContentLoadedMs ?? null,
         pageMetrics?.ttfbMs ?? null,
       ]
-        .map((value) =>
-          escapeCsvValue(value),
-        )
+        .map(escapeCsvValue)
         .join(","),
     );
 
@@ -716,6 +755,44 @@ export default function App() {
             </p>
           </div>
 
+          <div className="mt-5">
+            <label
+              htmlFor="slow-request-threshold"
+              className="text-sm font-medium"
+            >
+              Slow request threshold
+            </label>
+
+            <select
+              id="slow-request-threshold"
+              value={draftSettings.slowRequestThresholdMs}
+              onChange={(event) => {
+                setDraftSettings((current) => ({
+                  ...current,
+                  slowRequestThresholdMs: Number(
+                    event.target.value,
+                  ) as AnalyzerSettings["slowRequestThresholdMs"],
+                }));
+
+                setSettingsMessage(null);
+              }}
+              className="mt-2 w-full rounded-lg border border-white/10 bg-[#080f1c] px-3 py-2 text-sm text-slate-100 outline-none focus:border-violet-400/50"
+            >
+              {SLOW_REQUEST_THRESHOLDS_MS.map((threshold) => (
+                <option key={threshold} value={threshold}>
+                  {threshold < 1000
+                    ? `${threshold} ms`
+                    : `${threshold / 1000} second${threshold === 1000 ? "" : "s"}`}
+                </option>
+              ))}
+            </select>
+
+            <p className="mt-2 text-xs leading-5 text-slate-500">
+              Requests taking at least this long will be marked slow.
+              Changes apply to new requests.
+            </p>
+          </div>
+
           <div className="mt-5 flex flex-wrap gap-2">
             <button
               type="button"
@@ -777,7 +854,7 @@ export default function App() {
 
           <MetricCard
             icon={<AlertCircle className="h-4 w-4 text-rose-300" />}
-            label="Problem requests"
+            label="Captured requests"
             value={String(currentTabRequests.length)}
           />
         </div>
@@ -938,6 +1015,12 @@ export default function App() {
                         <span className={`shrink-0 rounded-md border px-2 py-1 text-[11px] font-semibold ${getRequestBadgeClass(request)}`}>
                           {request.kind === "network" ? "NETWORK" : request.status}
                         </span>
+
+                        {request.slowCount > 0 && (
+                          <span className="rounded-md border border-amber-400/20 bg-amber-400/10 px-2 py-1 text-[11px] text-amber-200">
+                            {request.slowCount} slow
+                          </span>
+                        )}
 
                         <button
                           type="button"

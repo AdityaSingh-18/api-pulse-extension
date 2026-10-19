@@ -13,6 +13,7 @@ export interface CapturedRequest {
   status: number | null;
   error: string | null;
   durationMs: number | null;
+  isSlow: boolean;
   timestamp: number;
 }
 
@@ -49,9 +50,14 @@ export function normalizeMonitoringState(
 
   return {
     requests: Array.isArray(state.requests)
-      ? state.requests as CapturedRequest[]
+      ? (state.requests as CapturedRequest[]).map((request) => ({
+          ...request,
+          isSlow: typeof request.isSlow === "boolean"
+            ? request.isSlow
+            : false,
+        }))
       : [],
-
+    
     pageMetrics: typeof state.pageMetrics === "object" &&
       state.pageMetrics !== null &&
       !Array.isArray(state.pageMetrics)

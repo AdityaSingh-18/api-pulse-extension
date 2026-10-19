@@ -162,13 +162,25 @@ chrome.webRequest.onCompleted.addListener(
     const startedAt = requestStarts.get(details.requestId);
     requestStarts.delete(details.requestId);
 
+    const durationMs =
+      startedAt === undefined
+        ? null
+        : Math.max(
+            0,
+            Math.round(details.timeStamp - startedAt),
+          );
+
     void settingsReady.then(() => {
-      if (
-        !shouldReportHttpStatus(
-          details.statusCode,
-          currentSettings.ignoredStatusCodes,
-        )
-      ) {
+      const isSlow =
+        durationMs !== null &&
+        durationMs >= currentSettings.slowRequestThresholdMs;
+
+      const isHttpProblem = shouldReportHttpStatus(
+        details.statusCode,
+        currentSettings.ignoredStatusCodes,
+      );
+
+      if (!isHttpProblem && !isSlow) {
         return;
       }
 
@@ -180,13 +192,8 @@ chrome.webRequest.onCompleted.addListener(
         kind: "http",
         status: details.statusCode,
         error: null,
-        durationMs:
-          startedAt === undefined
-            ? null
-            : Math.max(
-                0,
-                Math.round(details.timeStamp - startedAt),
-              ),
+        durationMs,
+        isSlow,
         timestamp: Date.now(),
       };
 
@@ -210,6 +217,10 @@ chrome.webRequest.onErrorOccurred.addListener(
         return;
       }
 
+      const durationMs = startedAt === undefined
+        ? null
+        : Math.max(0, Math.round(details.timeStamp - startedAt));
+
       const issue: CapturedRequest = {
         id: `${details.requestId}-${details.timeStamp}`,
         tabId: details.tabId,
@@ -218,13 +229,8 @@ chrome.webRequest.onErrorOccurred.addListener(
         kind: "network",
         status: null,
         error: details.error,
-        durationMs:
-          startedAt === undefined
-            ? null
-            : Math.max(
-                0,
-                Math.round(details.timeStamp - startedAt),
-              ),
+        durationMs,
+        isSlow: durationMs !== null && durationMs >= currentSettings.slowRequestThresholdMs,
         timestamp: Date.now(),
       };
 

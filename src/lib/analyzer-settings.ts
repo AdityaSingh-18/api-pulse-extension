@@ -1,4 +1,4 @@
-export const SETTINGS_STORAGE_KEY = "apiPulseSettings";
+export const SETTINGS_STORAGE_KEY = "apiAnalyzerSettings";
 
 export const HISTORY_RETENTION_HOURS = [
   1,
@@ -7,18 +7,33 @@ export const HISTORY_RETENTION_HOURS = [
   72,
 ] as const;
 
-export type HistoryRetentionHours = (typeof HISTORY_RETENTION_HOURS)[number];
+export const SLOW_REQUEST_THRESHOLDS_MS = [
+  500,
+  1000,
+  1500,
+  2000,
+  3000,
+  5000,
+] as const;
+
+export type HistoryRetentionHours =
+  (typeof HISTORY_RETENTION_HOURS)[number];
+
+export type SlowRequestThresholdMs =
+  (typeof SLOW_REQUEST_THRESHOLDS_MS)[number];
 
 export interface AnalyzerSettings {
   ignoredStatusCodes: number[];
   includeNetworkErrors: boolean;
   retentionHours: HistoryRetentionHours;
+  slowRequestThresholdMs: SlowRequestThresholdMs;
 }
 
 export const DEFAULT_ANALYZER_SETTINGS: AnalyzerSettings = {
   ignoredStatusCodes: [401],
   includeNetworkErrors: true,
   retentionHours: 24,
+  slowRequestThresholdMs: 1500,
 };
 
 export function normalizeAnalyzerSettings(
@@ -34,7 +49,10 @@ export function normalizeAnalyzerSettings(
   }
 
   const settings = value as Partial<AnalyzerSettings>;
-  const ignoredStatusCodes = Array.isArray(settings.ignoredStatusCodes,)
+
+  const ignoredStatusCodes = Array.isArray(
+    settings.ignoredStatusCodes,
+  )
     ? [
         ...new Set(
           settings.ignoredStatusCodes.filter(
@@ -54,11 +72,20 @@ export function normalizeAnalyzerSettings(
     ? (settings.retentionHours as HistoryRetentionHours)
     : DEFAULT_ANALYZER_SETTINGS.retentionHours;
 
+  const slowRequestThresholdMs =
+    SLOW_REQUEST_THRESHOLDS_MS.includes(
+      settings.slowRequestThresholdMs as SlowRequestThresholdMs,
+    )
+      ? (settings.slowRequestThresholdMs as SlowRequestThresholdMs)
+      : DEFAULT_ANALYZER_SETTINGS.slowRequestThresholdMs;
+
   return {
     ignoredStatusCodes,
-    includeNetworkErrors: typeof settings.includeNetworkErrors === "boolean"
-      ? settings.includeNetworkErrors
-      : DEFAULT_ANALYZER_SETTINGS.includeNetworkErrors,
+    includeNetworkErrors:
+      typeof settings.includeNetworkErrors === "boolean"
+        ? settings.includeNetworkErrors
+        : DEFAULT_ANALYZER_SETTINGS.includeNetworkErrors,
     retentionHours,
+    slowRequestThresholdMs,
   };
 }
