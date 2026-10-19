@@ -1,4 +1,4 @@
-export const storageKey = "apiPulseMonitoring";
+export const MONITORING_STORAGE_KEY = "apiPulseMonitoring";
 
 export const maxRequests = 250;
 

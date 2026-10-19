@@ -17,15 +17,25 @@ import {
   Timer,
   Trash2,
   WifiOff,
+  Save,
+  Settings2,
+  RotateCcw,
 } from "lucide-react";
 
 import {
   EmptyMonitoringState,
-  storageKey,
+  MONITORING_STORAGE_KEY,
   normalizeMonitoringState,
   type CapturedRequest,
   type MonitoringState,
 } from "./lib/monitoring-types";
+
+import {
+  DEFAULT_ANALYZER_SETTINGS,
+  normalizeAnalyzerSettings,
+  SETTINGS_STORAGE_KEY,
+  type AnalyzerSettings,
+} from "./lib/analyzer-settings";
 
 type RequestFilter = "all" | "4xx" | "5xx" | "network";
 
@@ -137,6 +147,12 @@ export default function App() {
   const [filter, setFilter] = useState<RequestFilter>("all");
   const [storageError, setStorageError] = useState(false);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
+  
+  const [settings, setSettings] = useState<AnalyzerSettings>(DEFAULT_ANALYZER_SETTINGS);
+  const [draftSettings, setDraftSettings] = useState<AnalyzerSettings>(DEFAULT_ANALYZER_SETTINGS);
+  const [ignoredStatusCodesInput, setIgnoredStatusCodesInput] = useState("401");
+  const [showSettings, setShowSettings] = useState(false);
+  const [settingsMessage, setSettingsMessage] = useState<string | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -202,14 +218,14 @@ export default function App() {
       },
       areaName: string,
     ) {
-      if (areaName !== "session" || !(storageKey in changes)) {
+      if (areaName !== "session" || !(MONITORING_STORAGE_KEY in changes)) {
         return;
       }
 
       storageChangedBeforeInitialRead = true;
 
       setMonitoringState(
-        normalizeMonitoringState(changes[storageKey].newValue),
+        normalizeMonitoringState(changes[MONITORING_STORAGE_KEY].newValue),
       );
 
       setStorageError(false);
@@ -218,11 +234,11 @@ export default function App() {
     chrome.storage.onChanged.addListener(handleStorageChange);
 
     void chrome.storage.session
-      .get(storageKey)
+      .get(MONITORING_STORAGE_KEY)
       .then((stored) => {
         if (mounted && !storageChangedBeforeInitialRead) {
           setMonitoringState(
-            normalizeMonitoringState(stored[storageKey]),
+            normalizeMonitoringState(stored[MONITORING_STORAGE_KEY]),
           );
         }
       })
@@ -239,15 +255,80 @@ export default function App() {
     };
   }, []);
 
+  useEffect(() => {
+    let mounted = true;
+    let settingsChangedBeforeInitialRead = false;
+
+    function applySettings(value: unknown) {
+      const next = normalizeAnalyzerSettings(value);
+
+      setSettings(next);
+      setDraftSettings(next);
+      setIgnoredStatusCodesInput(next.ignoredStatusCodes.join(", "));
+    }
+
+    function handleSettingsChange(
+      changes: {
+        [key: string]: chrome.storage.StorageChange;
+      },
+      areaName: string,
+    ) {
+      if (areaName !== "local" || !(SETTINGS_STORAGE_KEY in changes)) {
+        return;
+      }
+
+      settingsChangedBeforeInitialRead = true;
+      applySettings(changes[SETTINGS_STORAGE_KEY].newValue);
+    }
+
+    chrome.storage.onChanged.addListener(
+      handleSettingsChange,
+    );
+
+    void chrome.storage.local
+      .get(SETTINGS_STORAGE_KEY)
+      .then((stored) => {
+        if (mounted && !settingsChangedBeforeInitialRead) {
+          applySettings(stored[SETTINGS_STORAGE_KEY]);
+        }
+      })
+      .catch(() => {
+        if (mounted) {
+          setStorageError(true);
+        }
+      });
+
+    return () => {
+      mounted = false;
+      chrome.storage.onChanged.removeListener(handleSettingsChange);
+    };
+  }, []);
+
   const currentTabRequests = useMemo(() => {
     if (activeTabId === null) {
       return [];
     }
 
+    const cutoff = Date.now() - settings.retentionHours * 60 * 60 * 1000;
+
     return monitoringState.requests
-      .filter((request) => request.tabId === activeTabId)
+      .filter(
+        (request) =>
+          request.tabId === activeTabId &&
+          request.timestamp >= cutoff,
+      )
+      .filter((request) => {
+        if (request.kind === "network") {
+          return settings.includeNetworkErrors;
+        }
+
+        return (
+          request.status === null ||
+          !settings.ignoredStatusCodes.includes(request.status)
+        );
+      })
       .sort((a, b) => b.timestamp - a.timestamp);
-  }, [monitoringState.requests, activeTabId]);
+  }, [monitoringState.requests, activeTabId, settings]);
 
   const filteredRequests = useMemo(() => {
     let matchingRequests: CapturedRequest[];
@@ -320,6 +401,77 @@ export default function App() {
       setActionMessage("Request details copied.");
     } catch {
       setActionMessage("Unable to copy request details.");
+    }
+  }
+
+  async function handleSaveSettings() {
+    const raw = ignoredStatusCodesInput.trim();
+
+    const parsedStatuses =
+      raw === ""
+        ? []
+        : raw.split(",").map((value) => Number(value.trim()));
+
+    if (
+      parsedStatuses.some(
+        (status) =>
+          !Number.isInteger(status) ||
+          status < 400 ||
+          status > 599,
+      )
+    ) {
+      setSettingsMessage(
+        "Enter valid HTTP status codes between 400 and 599, separated by commas.",
+      );
+      return;
+    }
+
+    const nextSettings: AnalyzerSettings = {
+      ...draftSettings,
+      ignoredStatusCodes: [
+        ...new Set(parsedStatuses),
+      ],
+    };
+
+    try {
+      await chrome.storage.local.set({
+        [SETTINGS_STORAGE_KEY]: nextSettings,
+      });
+
+      setSettings(nextSettings);
+      setDraftSettings(nextSettings);
+      setIgnoredStatusCodesInput(
+        nextSettings.ignoredStatusCodes.join(", "),
+      );
+      setSettingsMessage("Settings saved successfully.");
+      setStorageError(false);
+    } catch {
+      setSettingsMessage("Unable to save settings.");
+    }
+  }
+
+  async function handleResetSettings() {
+    try {
+      const defaults: AnalyzerSettings = {
+        ...DEFAULT_ANALYZER_SETTINGS,
+        ignoredStatusCodes: [
+          ...DEFAULT_ANALYZER_SETTINGS.ignoredStatusCodes,
+        ],
+      };
+
+      await chrome.storage.local.set({
+        [SETTINGS_STORAGE_KEY]: defaults,
+      });
+
+      setSettings(defaults);
+      setDraftSettings(defaults);
+      setIgnoredStatusCodesInput(
+        defaults.ignoredStatusCodes.join(", "),
+      );
+      setSettingsMessage("Default settings restored.");
+      setStorageError(false);
+    } catch {
+      setSettingsMessage("Unable to reset settings.");
     }
   }
 
@@ -419,9 +571,15 @@ export default function App() {
     setActionMessage("CSV report exported.");
   }
 
-  const pageMetrics = activeTabId === null
+  const storedPageMetrics = activeTabId === null
     ? undefined
     : monitoringState.pageMetrics[String(activeTabId)];
+
+  const retentionCutoff = Date.now() - settings.retentionHours * 60 * 60 * 1000;
+
+  const pageMetrics = storedPageMetrics && storedPageMetrics.capturedAt >= retentionCutoff
+    ? storedPageMetrics
+    : undefined;
 
   return (
     <main className="min-h-screen bg-[#080f1c] p-4 text-slate-100">
@@ -439,7 +597,155 @@ export default function App() {
             API errors and page performance
           </p>
         </div>
+
+        <button
+          type="button"
+          onClick={() => {
+            setShowSettings((current) => !current);
+            setSettingsMessage(null);
+          }}
+          aria-label={showSettings ? "Close settings" : "Open settings"}
+          aria-expanded={showSettings}
+          className={`rounded-lg border p-2 transition ${
+            showSettings
+              ? "border-violet-400/30 bg-violet-400/10 text-violet-200"
+              : "border-white/10 text-slate-400 hover:bg-white/[0.07] hover:text-white"
+          }`}
+        >
+          <Settings2 className="h-4 w-4" />
+        </button>
       </header>
+
+      {showSettings && (
+        <section className="mt-5 rounded-xl border border-white/10 bg-white/[0.03] p-4">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h2 className="font-semibold">Monitoring settings</h2>
+              <p className="mt-1 text-xs text-slate-400">
+                Configure which problems API Analyzer displays.
+              </p>
+            </div>
+
+            <Settings2 className="h-5 w-5 text-violet-300" />
+          </div>
+
+          <div className="mt-5">
+            <label
+              htmlFor="ignored-status-codes"
+              className="text-sm font-medium"
+            >
+              Ignored HTTP status codes
+            </label>
+
+            <input
+              id="ignored-status-codes"
+              type="text"
+              value={ignoredStatusCodesInput}
+              onChange={(event) => {
+                setIgnoredStatusCodesInput(event.target.value);
+                setSettingsMessage(null);
+              }}
+              placeholder="401, 404"
+              className="mt-2 w-full rounded-lg border border-white/10 bg-[#080f1c] px-3 py-2 text-sm text-slate-100 outline-none transition placeholder:text-slate-600 focus:border-violet-400/50"
+            />
+
+            <p className="mt-2 text-xs leading-5 text-slate-500">
+              Separate codes with commas. Use values from 400 to 599.
+              By default, 401 Unauthorized is ignored.
+            </p>
+          </div>
+
+          <label className="mt-5 flex cursor-pointer items-start gap-3">
+            <input
+              type="checkbox"
+              checked={draftSettings.includeNetworkErrors}
+              onChange={(event) => {
+                setDraftSettings((current) => ({
+                  ...current,
+                  includeNetworkErrors: event.target.checked,
+                }));
+                setSettingsMessage(null);
+              }}
+              className="mt-0.5 h-4 w-4 accent-violet-400"
+            />
+
+            <span>
+              <span className="block text-sm font-medium">
+                Include network errors
+              </span>
+
+              <span className="mt-1 block text-xs leading-5 text-slate-500">
+                Capture failed requests without an HTTP response,
+                excluding intentionally aborted requests.
+              </span>
+            </span>
+          </label>
+
+          <div className="mt-5">
+            <label
+              htmlFor="history-retention"
+              className="text-sm font-medium"
+            >
+              History retention
+            </label>
+
+            <select
+              id="history-retention"
+              value={draftSettings.retentionHours}
+              onChange={(event) => {
+                setDraftSettings((current) => ({
+                  ...current,
+                  retentionHours: Number(
+                    event.target.value,
+                  ) as AnalyzerSettings["retentionHours"],
+                }));
+                setSettingsMessage(null);
+              }}
+              className="mt-2 w-full rounded-lg border border-white/10 bg-[#080f1c] px-3 py-2 text-sm text-slate-100 outline-none focus:border-violet-400/50"
+            >
+              <option value={1}>1 hour</option>
+              <option value={6}>6 hours</option>
+              <option value={24}>24 hours</option>
+              <option value={72}>3 days</option>
+            </select>
+
+            <p className="mt-2 text-xs leading-5 text-slate-500">
+              Older entries are removed when monitoring data is next
+              updated. Session history is also cleared when the
+              browser session ends or the extension is reloaded.
+            </p>
+          </div>
+
+          <div className="mt-5 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => void handleSaveSettings()}
+              className="inline-flex items-center gap-2 rounded-lg bg-violet-500 px-3 py-2 text-xs font-medium text-white transition hover:bg-violet-400"
+            >
+              <Save className="h-3.5 w-3.5" />
+              Save settings
+            </button>
+
+            <button
+              type="button"
+              onClick={() => void handleResetSettings()}
+              className="inline-flex items-center gap-2 rounded-lg border border-white/10 px-3 py-2 text-xs text-slate-300 transition hover:bg-white/[0.07]"
+            >
+              <RotateCcw className="h-3.5 w-3.5" />
+              Reset defaults
+            </button>
+          </div>
+
+          {settingsMessage && (
+            <p
+              role="status"
+              className="mt-3 text-xs text-slate-400"
+            >
+              {settingsMessage}
+            </p>
+          )}
+        </section>
+      )}
 
       <section className="mt-6">
         <div className="mb-3 flex items-center gap-2">
