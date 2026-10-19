@@ -179,11 +179,37 @@ function isNullableNumber(
 
 chrome.runtime.onMessage.addListener(
   (message: unknown, sender) => {
-    if (
-      !isRecord(message) ||
-      message.type !== "PAGE_METRICS" ||
-      !isRecord(message.payload)
-    ) {
+    if (!isRecord(message)) {
+      return;
+    }
+
+    if (message.type === "CLEAR_TAB_DATA") {
+      if (sender.id !== chrome.runtime.id) {
+        return;
+      }
+
+      const tabId = message.tabId;
+
+      if (typeof tabId !== "number" || !Number.isInteger(tabId) || tabId < 0) {
+        return;
+      }
+
+      void updateMonitoringState((state) => {
+        const pageMetrics = { ...state.pageMetrics };
+        delete pageMetrics[String(tabId)];
+
+        return {
+          requests: state.requests.filter(
+            (request) => request.tabId !== tabId,
+          ),
+          pageMetrics,
+        };
+      });
+
+      return;
+    }
+
+    if (message.type !== "PAGE_METRICS" || !isRecord(message.payload)) {
       return;
     }
 

@@ -13,6 +13,7 @@ import {
   Network,
   ShieldAlert,
   Timer,
+  Trash2,
   WifiOff,
 } from "lucide-react";
 
@@ -62,6 +63,41 @@ function getRequestBadgeClass(
   }
 
   return "border-orange-400/20 bg-orange-400/10 text-orange-200";
+}
+
+interface GroupedRequest extends CapturedRequest {
+  count: number;
+}
+
+function groupDuplicateRequests(
+  requests: CapturedRequest[],
+): GroupedRequest[] {
+  const groups = new Map<string, GroupedRequest>();
+
+  for (const request of requests) {
+    const key = JSON.stringify([
+      request.kind,
+      request.method,
+      request.url,
+      request.status,
+      request.error,
+    ]);
+
+    const existing = groups.get(key);
+
+    if (existing) {
+      existing.count += 1;
+    } else {
+      groups.set(key, {
+        ...request,
+        count: 1,
+      });
+    }
+  }
+
+  return [...groups.values()].sort(
+    (a, b) => b.timestamp - a.timestamp,
+  );
 }
 
 export default function App() {
@@ -182,32 +218,56 @@ export default function App() {
   }, [monitoringState.requests, activeTabId]);
 
   const filteredRequests = useMemo(() => {
+    let matchingRequests: CapturedRequest[];
+
     switch (filter) {
       case "4xx":
-        return currentTabRequests.filter(
+        matchingRequests = currentTabRequests.filter(
           (request) =>
             request.kind === "http" &&
             (request.status ?? 0) >= 400 &&
             (request.status ?? 0) < 500,
         );
+        break;
 
       case "5xx":
-        return currentTabRequests.filter(
+        matchingRequests = currentTabRequests.filter(
           (request) =>
             request.kind === "http" &&
             (request.status ?? 0) >= 500 &&
             (request.status ?? 0) < 600,
         );
+        break;
 
       case "network":
-        return currentTabRequests.filter(
+        matchingRequests = currentTabRequests.filter(
           (request) => request.kind === "network",
         );
+        break;
 
       default:
-        return currentTabRequests;
+        matchingRequests = currentTabRequests;
     }
+
+    return groupDuplicateRequests(matchingRequests);
   }, [currentTabRequests, filter]);
+
+  async function handleClearCurrentTab() {
+    if (activeTabId === null) {
+      return;
+    }
+
+    try {
+      await chrome.runtime.sendMessage({
+        type: "CLEAR_TAB_DATA",
+        tabId: activeTabId,
+      });
+
+      setStorageError(false);
+    } catch {
+      setStorageError(true);
+    }
+  }
 
   const pageMetrics = activeTabId === null
     ? undefined
@@ -301,9 +361,25 @@ export default function App() {
             </h2>
           </div>
 
-          <span className="rounded-full bg-white/[0.06] px-2 py-1 text-xs text-slate-400">
-            {filteredRequests.length}
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-slate-400">
+              {filteredRequests.length} groups
+            </span>
+
+            <button
+              type="button"
+              onClick={() => void handleClearCurrentTab()}
+              disabled={
+                activeTabId === null ||
+                (currentTabRequests.length === 0 && !pageMetrics)
+              }
+              className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 px-2.5 py-1.5 text-xs text-slate-400 transition hover:border-rose-400/30 hover:bg-rose-400/10 hover:text-rose-200 disabled:cursor-not-allowed disabled:opacity-40"
+              title="Clear this tab's requests and page metrics"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              Clear tab
+            </button>
+          </div>
         </div>
 
         <div className="mt-3 flex flex-wrap gap-2">
@@ -365,25 +441,26 @@ export default function App() {
                         {request.method}
                       </span>
 
-                      <span className={`shrink-0 rounded-md border px-2 py-1 text-[11px] font-semibold  ${getRequestBadgeClass(request)}`}>
-                        {request.kind === "network"
-                          ? "NETWORK"
-                          : request.status}
-                      </span>
+                     <div className="flex items-center gap-2">
+                        {request.count > 1 && (
+                          <span className="rounded-md border border-white/10 bg-white/5 px-2 py-1 text-[11px] text-slate-300">
+                            {request.count} occurrences
+                          </span>
+                        )}
+
+                        <span className={`shrink-0 rounded-md border px-2 py-1 text-[11px] font-semibold ${getRequestBadgeClass(request)}`}>
+                          {request.kind === "network" ? "NETWORK" : request.status}
+                        </span>
+                      </div>
                     </div>
 
-                    <p
-                      className="mt-2 break-all font-mono text-xs leading-5 text-slate-300"
-                      title={request.url}
-                    >
+                    <p className="mt-2 break-all font-mono text-xs leading-5 text-slate-300" title={request.url}>
                       {request.url}
                     </p>
 
                     <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-500">
                       <span>
-                        {request.kind === "network"
-                          ? request.error
-                          : `HTTP ${request.status}`}
+                        {request.kind === "network" ? request.error : `HTTP ${request.status}`}
                       </span>
 
                       <span>
