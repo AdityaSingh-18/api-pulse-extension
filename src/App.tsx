@@ -9,6 +9,8 @@ import {
   Activity,
   AlertCircle,
   Clock3,
+  Copy,
+  Download,
   Globe,
   Network,
   ShieldAlert,
@@ -100,11 +102,41 @@ function groupDuplicateRequests(
   );
 }
 
+function downloadFile(
+  filename: string,
+  content: string,
+  mimeType: string,
+): void {
+  const blob = new Blob([content], {
+    type: mimeType,
+  });
+
+  const objectUrl = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+
+  link.href = objectUrl;
+  link.download = filename;
+
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+
+  window.setTimeout(() => {
+    URL.revokeObjectURL(objectUrl);
+  }, 1000);
+}
+
+function escapeCsvValue(value: string | number | null): string {
+  const text = String(value ?? "").replace(/"/g, '""');
+  return `"${text}"`;
+}
+
 export default function App() {
   const [monitoringState, setMonitoringState] = useState<MonitoringState>(EmptyMonitoringState);
   const [activeTabId, setActiveTabId] = useState<number | null>(null);
   const [filter, setFilter] = useState<RequestFilter>("all");
   const [storageError, setStorageError] = useState(false);
+  const [actionMessage, setActionMessage] = useState<string | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -269,6 +301,124 @@ export default function App() {
     }
   }
 
+  async function handleCopyRequest(
+    request: GroupedRequest,
+  ): Promise<void> {
+    const details = [
+      `Method: ${request.method}`,
+      `URL: ${request.url}`,
+      `Type: ${request.kind}`,
+      `Status: ${request.status ?? "N/A"}`,
+      `Error: ${request.error ?? "N/A"}`,
+      `Duration: ${formatDuration(request.durationMs)}`,
+      `Occurrences: ${request.count}`,
+      `Last observed: ${new Date(request.timestamp).toISOString()}`,
+    ].join("\n");
+
+    try {
+      await navigator.clipboard.writeText(details);
+      setActionMessage("Request details copied.");
+    } catch {
+      setActionMessage("Unable to copy request details.");
+    }
+  }
+
+  function handleExportReport(
+    format: "json" | "csv",
+  ): void {
+    if (activeTabId === null) {
+      return;
+    }
+
+    const exportedAt = new Date().toISOString();
+
+    const report = {
+      application: "API Analyzer",
+      exportedAt,
+      tabId: activeTabId,
+      filter,
+      pageMetrics: pageMetrics ?? null,
+      summary: {
+        groups: filteredRequests.length,
+        occurrences: filteredRequests.reduce(
+          (total, request) => total + request.count,
+          0,
+        ),
+      },
+      requests: filteredRequests.map((request) => ({
+        method: request.method,
+        url: request.url,
+        kind: request.kind,
+        status: request.status,
+        error: request.error,
+        durationMs: request.durationMs,
+        occurrences: request.count,
+        lastObserved: new Date(request.timestamp).toISOString(),
+      })),
+    };
+
+    const filenameTime = exportedAt.replace(/[:.]/g, "-");
+    const filename = `api-analyzer-${activeTabId}-${filenameTime}`;
+
+    if (format === "json") {
+      downloadFile(
+        `${filename}.json`,
+        JSON.stringify(report, null, 2),
+        "application/json;charset=utf-8",
+      );
+
+      setActionMessage("JSON report exported.");
+      return;
+    }
+
+    const headers = [
+      "method",
+      "url",
+      "kind",
+      "status",
+      "error",
+      "duration_ms",
+      "occurrences",
+      "last_observed",
+      "page_load_ms",
+      "dom_content_loaded_ms",
+      "ttfb_ms",
+    ];
+
+    const rows = filteredRequests.map((request) =>
+      [
+        request.method,
+        request.url,
+        request.kind,
+        request.status,
+        request.error,
+        request.durationMs,
+        request.count,
+        new Date(request.timestamp).toISOString(),
+        pageMetrics?.loadMs ?? null,
+        pageMetrics?.domContentLoadedMs ?? null,
+        pageMetrics?.ttfbMs ?? null,
+      ]
+        .map((value) =>
+          escapeCsvValue(value),
+        )
+        .join(","),
+    );
+
+    const csv = [
+      headers.map(escapeCsvValue).join(","),
+      ...rows,
+    ].join("\r\n");
+
+    downloadFile(
+      `${filename}.csv`,
+      `\uFEFF${csv}`,
+      "text/csv;charset=utf-8",
+    );
+
+    setActionMessage("CSV report exported.");
+  }
+
   const pageMetrics = activeTabId === null
     ? undefined
     : monitoringState.pageMetrics[String(activeTabId)];
@@ -352,19 +502,41 @@ export default function App() {
       </section>
 
       <section className="mt-7">
-        <div className="flex items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <AlertCircle className="h-4 w-4 text-rose-300" />
 
             <h2 className="text-sm font-semibold">
               API problems
             </h2>
-          </div>
 
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-slate-400">
+            <span className="rounded-full bg-white/[0.06] px-2 py-1 text-xs text-slate-400">
               {filteredRequests.length} groups
             </span>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => handleExportReport("json")}
+              disabled={activeTabId === null}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 px-2.5 py-1.5 text-xs text-slate-300 transition hover:bg-white/[0.07] disabled:cursor-not-allowed disabled:opacity-40"
+              title="Export the current view as JSON"
+            >
+              <Download className="h-3.5 w-3.5" />
+              JSON
+            </button>
+
+            <button
+              type="button"
+              onClick={() => handleExportReport("csv")}
+              disabled={activeTabId === null}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 px-2.5 py-1.5 text-xs text-slate-300 transition hover:bg-white/[0.07] disabled:cursor-not-allowed disabled:opacity-40"
+              title="Export the current view as CSV"
+            >
+              <Download className="h-3.5 w-3.5" />
+              CSV
+            </button>
 
             <button
               type="button"
@@ -381,6 +553,15 @@ export default function App() {
             </button>
           </div>
         </div>
+
+        {actionMessage && (
+          <p
+            role="status"
+            className="mt-2 text-xs text-slate-400"
+          >
+            {actionMessage}
+          </p>
+        )}
 
         <div className="mt-3 flex flex-wrap gap-2">
           {ApiFilters.map((item) => (
@@ -441,7 +622,7 @@ export default function App() {
                         {request.method}
                       </span>
 
-                     <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2">
                         {request.count > 1 && (
                           <span className="rounded-md border border-white/10 bg-white/5 px-2 py-1 text-[11px] text-slate-300">
                             {request.count} occurrences
@@ -451,6 +632,16 @@ export default function App() {
                         <span className={`shrink-0 rounded-md border px-2 py-1 text-[11px] font-semibold ${getRequestBadgeClass(request)}`}>
                           {request.kind === "network" ? "NETWORK" : request.status}
                         </span>
+
+                        <button
+                          type="button"
+                          onClick={() => void handleCopyRequest(request)}
+                          className="rounded-md border border-white/10 p-1.5 text-slate-400 transition hover:bg-white/10 hover:text-white"
+                          title="Copy request details"
+                          aria-label={`Copy details for ${request.method} ${request.url}`}
+                        >
+                          <Copy className="h-3.5 w-3.5" />
+                        </button>
                       </div>
                     </div>
 
