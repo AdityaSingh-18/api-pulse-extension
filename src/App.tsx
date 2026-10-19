@@ -5,6 +5,7 @@ import {
   DEFAULT_ANALYZER_SETTINGS,
   SETTINGS_STORAGE_KEY,
   type AnalyzerSettings,
+  type DisplayMode,
   type ThemeMode,
 } from "./lib/analyzer-settings";
 
@@ -47,6 +48,11 @@ export default function App() {
     settingsMessage,
     setSettingsMessage,
   } = useAnalyzerSettings(setStorageError);
+
+  const isFloatingView = useMemo(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get("view") === "floating";
+  }, []);
 
   const isDark = settings.theme === "dark";
 
@@ -122,11 +128,12 @@ export default function App() {
     return groupDuplicateRequests(matchingRequests);
   }, [currentTabRequests, filter, settings.ignoredStatusCodes]);
 
-  async function handleToggleTheme(): Promise<void> {
-    const nextTheme: ThemeMode = settings.theme === "dark" ? "light" : "dark";
+  async function persistQuickSetting(
+    patch: Partial<AnalyzerSettings>,
+  ): Promise<void> {
     const nextSettings: AnalyzerSettings = {
       ...settings,
-      theme: nextTheme,
+      ...patch,
     };
 
     try {
@@ -137,11 +144,63 @@ export default function App() {
       setSettings(nextSettings);
       setDraftSettings((current) => ({
         ...current,
-        theme: nextTheme,
+        ...patch,
       }));
       setStorageError(false);
     } catch {
       setStorageError(true);
+    }
+  }
+
+  async function handleToggleTheme(): Promise<void> {
+    const nextTheme: ThemeMode = settings.theme === "dark" ? "light" : "dark";
+    await persistQuickSetting({ theme: nextTheme });
+  }
+
+  async function handleSwitchDisplayMode(mode: DisplayMode): Promise<void> {
+    await persistQuickSetting({ displayMode: mode });
+
+    if (mode === "floating") {
+      try {
+        await chrome.sidePanel.setPanelBehavior({
+          openPanelOnActionClick: false,
+        });
+        await chrome.action.setPopup({
+          popup: "index.html?view=floating",
+        });
+
+        if (!isFloatingView) {
+          if (typeof chrome.action.openPopup === "function") {
+            await chrome.action.openPopup();
+            window.close();
+            return;
+          }
+          setActionMessage("Floating popup enabled. Click the extension icon in your toolbar.");
+        }
+      } catch {
+        setActionMessage("Floating popup enabled. Click the extension icon in your toolbar.");
+      }
+      return;
+    }
+
+    try {
+      await chrome.action.setPopup({ popup: "" });
+      await chrome.sidePanel.setPanelBehavior({
+        openPanelOnActionClick: true,
+      });
+
+      if (isFloatingView) {
+        const currentWindow = await chrome.windows.getCurrent();
+        if (currentWindow.id !== undefined) {
+          await chrome.sidePanel.open({ windowId: currentWindow.id });
+          window.close();
+          return;
+        }
+      }
+
+      setActionMessage("Sidebar mode enabled.");
+    } catch {
+      setActionMessage("Sidebar mode enabled. Click the extension icon in your toolbar.");
     }
   }
 
@@ -347,7 +406,11 @@ export default function App() {
 
   return (
     <main
-      className={`min-h-screen p-4 transition-colors duration-200 ${
+      className={`${
+        isFloatingView
+          ? "w-[420px] max-h-[600px] overflow-y-auto"
+          : "min-h-screen w-full"
+      } p-4 transition-colors duration-200 ${
         isDark
           ? "bg-[#080f1c] text-slate-100"
           : "bg-slate-50 text-slate-900"
@@ -356,6 +419,8 @@ export default function App() {
       <AppHeader
         showSettings={showSettings}
         isDark={isDark}
+        displayMode={settings.displayMode}
+        onSwitchDisplayMode={(mode) => void handleSwitchDisplayMode(mode)}
         onToggleTheme={() => void handleToggleTheme()}
         onToggleSettings={() => {
           setShowSettings((current) => !current);

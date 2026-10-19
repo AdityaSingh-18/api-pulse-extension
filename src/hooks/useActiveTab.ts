@@ -8,13 +8,30 @@ export function useActiveTab(): number | null {
 
     async function syncActiveTab() {
       try {
-        const [tab] = await chrome.tabs.query({
+        const normalTabs = await chrome.tabs.query({
+          active: true,
+          windowType: "normal",
+        });
+
+        const candidate =
+          normalTabs.find(
+            (tab) =>
+              tab.id !== undefined &&
+              !tab.url?.startsWith("chrome-extension://"),
+          ) ?? normalTabs[0];
+
+        if (mounted && candidate?.id !== undefined) {
+          setActiveTabId(candidate.id);
+          return;
+        }
+
+        const [fallbackTab] = await chrome.tabs.query({
           active: true,
           lastFocusedWindow: true,
         });
 
         if (mounted) {
-          setActiveTabId(tab?.id ?? null);
+          setActiveTabId(fallbackTab?.id ?? null);
         }
       } catch {
         if (mounted) {
@@ -29,7 +46,6 @@ export function useActiveTab(): number | null {
 
     function handleWindowFocused(windowId: number) {
       if (windowId === chrome.windows.WINDOW_ID_NONE) {
-        setActiveTabId(null);
         return;
       }
 

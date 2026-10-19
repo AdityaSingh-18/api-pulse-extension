@@ -3,6 +3,7 @@ import type { Dispatch, SetStateAction } from "react";
 import {
   SLOW_REQUEST_THRESHOLDS_MS,
   type AnalyzerSettings,
+  type DisplayMode,
   type ThemeMode,
 } from "../lib/analyzer-settings";
 
@@ -55,7 +56,7 @@ export default function SettingsPanel({
               isDark ? "text-slate-400" : "text-slate-500"
             }`}
           >
-            Configure theme and which problems API Pulse displays.
+            Configure theme, view mode, and which problems API Pulse displays.
           </p>
         </div>
 
@@ -66,26 +67,50 @@ export default function SettingsPanel({
         />
       </div>
 
-      <div className="mt-5">
-        <label htmlFor="theme-mode" className="text-sm font-medium">
-          Theme
-        </label>
+      <div className="mt-5 grid grid-cols-2 gap-3">
+        <div>
+          <label htmlFor="theme-mode" className="text-sm font-medium">
+            Theme
+          </label>
 
-        <select
-          id="theme-mode"
-          value={draftSettings.theme}
-          onChange={(event) => {
-            setDraftSettings((current) => ({
-              ...current,
-              theme: event.target.value as ThemeMode,
-            }));
-            setSettingsMessage(null);
-          }}
-          className={`mt-2 w-full rounded-lg border px-3 py-2 text-sm outline-none ${inputClass}`}
-        >
-          <option value="dark">Dark</option>
-          <option value="light">Light</option>
-        </select>
+          <select
+            id="theme-mode"
+            value={draftSettings.theme}
+            onChange={(event) => {
+              setDraftSettings((current) => ({
+                ...current,
+                theme: event.target.value as ThemeMode,
+              }));
+              setSettingsMessage(null);
+            }}
+            className={`mt-2 w-full rounded-lg border px-3 py-2 text-sm outline-none ${inputClass}`}
+          >
+            <option value="dark">Dark</option>
+            <option value="light">Light</option>
+          </select>
+        </div>
+
+        <div>
+          <label htmlFor="display-mode" className="text-sm font-medium">
+            View mode
+          </label>
+
+          <select
+            id="display-mode"
+            value={draftSettings.displayMode}
+            onChange={(event) => {
+              setDraftSettings((current) => ({
+                ...current,
+                displayMode: event.target.value as DisplayMode,
+              }));
+              setSettingsMessage(null);
+            }}
+            className={`mt-2 w-full rounded-lg border px-3 py-2 text-sm outline-none ${inputClass}`}
+          >
+            <option value="sidebar">Sidebar</option>
+            <option value="floating">Floating panel</option>
+          </select>
+        </div>
       </div>
 
       <div className="mt-5">

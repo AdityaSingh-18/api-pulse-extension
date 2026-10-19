@@ -5,6 +5,7 @@ import {
   normalizeAnalyzerSettings,
   SETTINGS_STORAGE_KEY,
   type AnalyzerSettings,
+  type DisplayMode,
 } from "../lib/analyzer-settings";
 
 import {
@@ -31,12 +32,38 @@ let currentSettings: AnalyzerSettings = {
   ],
 };
 
+async function syncDisplayModeBehavior(mode: DisplayMode): Promise<void> {
+  try {
+    if (mode === "floating") {
+      await chrome.sidePanel.setPanelBehavior({
+        openPanelOnActionClick: false,
+      });
+      await chrome.action.setPopup({
+        popup: "index.html?view=floating",
+      });
+    } else {
+      await chrome.action.setPopup({
+        popup: "",
+      });
+      await chrome.sidePanel.setPanelBehavior({
+        openPanelOnActionClick: true,
+      });
+    }
+  } catch (error: unknown) {
+    console.error(
+      "[API Analyzer] Unable to configure display mode:",
+      error,
+    );
+  }
+}
+
 const settingsReady = chrome.storage.local
   .get(SETTINGS_STORAGE_KEY)
   .then((stored) => {
     currentSettings = normalizeAnalyzerSettings(
       stored[SETTINGS_STORAGE_KEY],
     );
+    return syncDisplayModeBehavior(currentSettings.displayMode);
   })
   .catch((error: unknown) => {
     console.error(
@@ -135,19 +162,9 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
     changes[SETTINGS_STORAGE_KEY].newValue,
   );
 
+  void syncDisplayModeBehavior(currentSettings.displayMode);
   void updateMonitoringState((state) => state);
 });
-
-chrome.sidePanel
-  .setPanelBehavior({
-    openPanelOnActionClick: true,
-  })
-  .catch((error: unknown) => {
-    console.error(
-      "[API Analyzer] Unable to configure side panel:",
-      error,
-    );
-  });
 
 chrome.webRequest.onBeforeRequest.addListener(
   (details) => {
