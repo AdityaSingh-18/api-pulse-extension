@@ -16,17 +16,22 @@ export const SLOW_REQUEST_THRESHOLDS_MS = [
   5000,
 ] as const;
 
+export const THEME_MODES = ["dark", "light"] as const;
+
 export type HistoryRetentionHours =
   (typeof HISTORY_RETENTION_HOURS)[number];
 
 export type SlowRequestThresholdMs =
   (typeof SLOW_REQUEST_THRESHOLDS_MS)[number];
 
+export type ThemeMode = (typeof THEME_MODES)[number];
+
 export interface AnalyzerSettings {
   ignoredStatusCodes: number[];
   includeNetworkErrors: boolean;
   retentionHours: HistoryRetentionHours;
   slowRequestThresholdMs: SlowRequestThresholdMs;
+  theme: ThemeMode;
 }
 
 export const DEFAULT_ANALYZER_SETTINGS: AnalyzerSettings = {
@@ -34,6 +39,7 @@ export const DEFAULT_ANALYZER_SETTINGS: AnalyzerSettings = {
   includeNetworkErrors: true,
   retentionHours: 24,
   slowRequestThresholdMs: 1500,
+  theme: "dark",
 };
 
 export function normalizeAnalyzerSettings(
@@ -79,6 +85,10 @@ export function normalizeAnalyzerSettings(
       ? (settings.slowRequestThresholdMs as SlowRequestThresholdMs)
       : DEFAULT_ANALYZER_SETTINGS.slowRequestThresholdMs;
 
+  const theme = THEME_MODES.includes(settings.theme as ThemeMode)
+    ? (settings.theme as ThemeMode)
+    : DEFAULT_ANALYZER_SETTINGS.theme;
+
   return {
     ignoredStatusCodes,
     includeNetworkErrors:
@@ -87,5 +97,6 @@ export function normalizeAnalyzerSettings(
         : DEFAULT_ANALYZER_SETTINGS.includeNetworkErrors,
     retentionHours,
     slowRequestThresholdMs,
+    theme,
   };
 }

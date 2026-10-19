@@ -3,6 +3,7 @@ import type { Dispatch, SetStateAction } from "react";
 import {
   SLOW_REQUEST_THRESHOLDS_MS,
   type AnalyzerSettings,
+  type ThemeMode,
 } from "../lib/analyzer-settings";
 
 import {
@@ -18,6 +19,7 @@ type SettingsPanelProps = {
   setIgnoredStatusCodesInput: Dispatch<SetStateAction<string>>;
   settingsMessage: string | null;
   setSettingsMessage: Dispatch<SetStateAction<string | null>>;
+  isDark: boolean;
   onSaveSettings: () => void;
   onResetSettings: () => void;
 };
@@ -29,20 +31,61 @@ export default function SettingsPanel({
   setIgnoredStatusCodesInput,
   settingsMessage,
   setSettingsMessage,
+  isDark,
   onSaveSettings,
   onResetSettings,
 }: SettingsPanelProps) {
+  const inputClass = isDark
+    ? "border-white/10 bg-[#080f1c] text-slate-100 placeholder:text-slate-600 focus:border-violet-400/50"
+    : "border-slate-300 bg-white text-slate-900 placeholder:text-slate-400 focus:border-violet-500";
+
   return (
-    <section className="mt-5 rounded-xl border border-white/10 bg-white/[0.03] p-4">
+    <section
+      className={`mt-5 rounded-xl border p-4 ${
+        isDark
+          ? "border-white/10 bg-white/[0.03]"
+          : "border-slate-200 bg-white shadow-2xs"
+      }`}
+    >
       <div className="flex items-center justify-between gap-3">
         <div>
           <h2 className="font-semibold">Monitoring settings</h2>
-          <p className="mt-1 text-xs text-slate-400">
-            Configure which problems API Pulse displays.
+          <p
+            className={`mt-1 text-xs ${
+              isDark ? "text-slate-400" : "text-slate-500"
+            }`}
+          >
+            Configure theme and which problems API Pulse displays.
           </p>
         </div>
 
-        <Settings2 className="h-5 w-5 text-violet-300" />
+        <Settings2
+          className={`h-5 w-5 ${
+            isDark ? "text-violet-300" : "text-violet-600"
+          }`}
+        />
+      </div>
+
+      <div className="mt-5">
+        <label htmlFor="theme-mode" className="text-sm font-medium">
+          Theme
+        </label>
+
+        <select
+          id="theme-mode"
+          value={draftSettings.theme}
+          onChange={(event) => {
+            setDraftSettings((current) => ({
+              ...current,
+              theme: event.target.value as ThemeMode,
+            }));
+            setSettingsMessage(null);
+          }}
+          className={`mt-2 w-full rounded-lg border px-3 py-2 text-sm outline-none ${inputClass}`}
+        >
+          <option value="dark">Dark</option>
+          <option value="light">Light</option>
+        </select>
       </div>
 
       <div className="mt-5">
@@ -62,7 +105,7 @@ export default function SettingsPanel({
             setSettingsMessage(null);
           }}
           placeholder="401, 404"
-          className="mt-2 w-full rounded-lg border border-white/10 bg-[#080f1c] px-3 py-2 text-sm text-slate-100 outline-none transition placeholder:text-slate-600 focus:border-violet-400/50"
+          className={`mt-2 w-full rounded-lg border px-3 py-2 text-sm outline-none transition ${inputClass}`}
         />
 
         <p className="mt-2 text-xs leading-5 text-slate-500">
@@ -82,7 +125,7 @@ export default function SettingsPanel({
             }));
             setSettingsMessage(null);
           }}
-          className="mt-0.5 h-4 w-4 accent-violet-400"
+          className="mt-0.5 h-4 w-4 accent-violet-500"
         />
 
         <span>
@@ -114,7 +157,7 @@ export default function SettingsPanel({
             }));
             setSettingsMessage(null);
           }}
-          className="mt-2 w-full rounded-lg border border-white/10 bg-[#080f1c] px-3 py-2 text-sm text-slate-100 outline-none focus:border-violet-400/50"
+          className={`mt-2 w-full rounded-lg border px-3 py-2 text-sm outline-none ${inputClass}`}
         >
           <option value={1}>1 hour</option>
           <option value={6}>6 hours</option>
@@ -149,7 +192,7 @@ export default function SettingsPanel({
             }));
             setSettingsMessage(null);
           }}
-          className="mt-2 w-full rounded-lg border border-white/10 bg-[#080f1c] px-3 py-2 text-sm text-slate-100 outline-none focus:border-violet-400/50"
+          className={`mt-2 w-full rounded-lg border px-3 py-2 text-sm outline-none ${inputClass}`}
         >
           {SLOW_REQUEST_THRESHOLDS_MS.map((threshold) => (
             <option key={threshold} value={threshold}>
@@ -179,7 +222,11 @@ export default function SettingsPanel({
         <button
           type="button"
           onClick={onResetSettings}
-          className="inline-flex items-center gap-2 rounded-lg border border-white/10 px-3 py-2 text-xs text-slate-300 transition hover:bg-white/[0.07]"
+          className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-xs transition ${
+            isDark
+              ? "border-white/10 text-slate-300 hover:bg-white/[0.07]"
+              : "border-slate-200 bg-white text-slate-700 hover:bg-slate-100"
+          }`}
         >
           <RotateCcw className="h-3.5 w-3.5" />
           Reset defaults
@@ -187,7 +234,12 @@ export default function SettingsPanel({
       </div>
 
       {settingsMessage && (
-        <p role="status" className="mt-3 text-xs text-slate-400">
+        <p
+          role="status"
+          className={`mt-3 text-xs ${
+            isDark ? "text-slate-400" : "text-slate-600"
+          }`}
+        >
           {settingsMessage}
         </p>
       )}

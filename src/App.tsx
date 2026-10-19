@@ -5,6 +5,7 @@ import {
   DEFAULT_ANALYZER_SETTINGS,
   SETTINGS_STORAGE_KEY,
   type AnalyzerSettings,
+  type ThemeMode,
 } from "./lib/analyzer-settings";
 
 import {
@@ -47,6 +48,8 @@ export default function App() {
     setSettingsMessage,
   } = useAnalyzerSettings(setStorageError);
 
+  const isDark = settings.theme === "dark";
+
   const currentTabRequests = useMemo(() => {
     if (activeTabId === null) {
       return [];
@@ -59,16 +62,6 @@ export default function App() {
         (request) =>
           request.tabId === activeTabId && request.timestamp >= cutoff,
       )
-      .filter((request) => {
-        if (request.kind === "network") {
-          return settings.includeNetworkErrors;
-        }
-
-        return (
-          request.status === null ||
-          !settings.ignoredStatusCodes.includes(request.status)
-        );
-      })
       .filter((request) => {
         if (request.kind === "network") {
           return settings.includeNetworkErrors;
@@ -128,6 +121,29 @@ export default function App() {
 
     return groupDuplicateRequests(matchingRequests);
   }, [currentTabRequests, filter, settings.ignoredStatusCodes]);
+
+  async function handleToggleTheme(): Promise<void> {
+    const nextTheme: ThemeMode = settings.theme === "dark" ? "light" : "dark";
+    const nextSettings: AnalyzerSettings = {
+      ...settings,
+      theme: nextTheme,
+    };
+
+    try {
+      await chrome.storage.local.set({
+        [SETTINGS_STORAGE_KEY]: nextSettings,
+      });
+
+      setSettings(nextSettings);
+      setDraftSettings((current) => ({
+        ...current,
+        theme: nextTheme,
+      }));
+      setStorageError(false);
+    } catch {
+      setStorageError(true);
+    }
+  }
 
   async function handleClearCurrentTab() {
     if (activeTabId === null) {
@@ -330,9 +346,17 @@ export default function App() {
     : undefined;
 
   return (
-    <main className="min-h-screen bg-[#080f1c] p-4 text-slate-100">
+    <main
+      className={`min-h-screen p-4 transition-colors duration-200 ${
+        isDark
+          ? "bg-[#080f1c] text-slate-100"
+          : "bg-slate-50 text-slate-900"
+      }`}
+    >
       <AppHeader
         showSettings={showSettings}
+        isDark={isDark}
+        onToggleTheme={() => void handleToggleTheme()}
         onToggleSettings={() => {
           setShowSettings((current) => !current);
           setSettingsMessage(null);
@@ -347,6 +371,7 @@ export default function App() {
           setIgnoredStatusCodesInput={setIgnoredStatusCodesInput}
           settingsMessage={settingsMessage}
           setSettingsMessage={setSettingsMessage}
+          isDark={isDark}
           onSaveSettings={() => void handleSaveSettings()}
           onResetSettings={() => void handleResetSettings()}
         />
@@ -355,6 +380,7 @@ export default function App() {
       <PerformanceSection
         pageMetrics={pageMetrics}
         currentTabRequestCount={currentTabRequests.length}
+        isDark={isDark}
       />
 
       <ApiProblemsSection
@@ -366,6 +392,7 @@ export default function App() {
         actionMessage={actionMessage}
         storageError={storageError}
         canClearTab={activeTabId !== null && !(currentTabRequests.length === 0 && !pageMetrics)}
+        isDark={isDark}
         onExportReport={handleExportReport}
         onClearCurrentTab={() => void handleClearCurrentTab()}
         onCopyRequest={handleCopyRequest}

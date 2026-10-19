@@ -29,20 +29,31 @@ export function formatDuration(
   return `${(milliseconds / 1000).toFixed(2)} s`;
 }
 
-export function getRequestBadgeClass(request: CapturedRequest): string {
+export function getRequestBadgeClass(
+  request: CapturedRequest,
+  isDark = true,
+): string {
   if (request.kind === "network") {
-    return "border-amber-400/20 bg-amber-400/10 text-amber-200";
+    return isDark
+      ? "border-amber-400/20 bg-amber-400/10 text-amber-200"
+      : "border-amber-500/30 bg-amber-50 text-amber-800";
   }
 
   if ((request.status ?? 0) >= 500) {
-    return "border-rose-400/20 bg-rose-400/10 text-rose-200";
+    return isDark
+      ? "border-rose-400/20 bg-rose-400/10 text-rose-200"
+      : "border-rose-500/30 bg-rose-50 text-rose-700";
   }
 
   if ((request.status ?? 0) >= 400) {
-    return "border-orange-400/20 bg-orange-400/10 text-orange-200";
+    return isDark
+      ? "border-orange-400/20 bg-orange-400/10 text-orange-200"
+      : "border-orange-500/30 bg-orange-50 text-orange-700";
   }
 
-  return "border-amber-400/20 bg-amber-400/10 text-amber-200";
+  return isDark
+    ? "border-amber-400/20 bg-amber-400/10 text-amber-200"
+    : "border-amber-500/30 bg-amber-50 text-amber-800";
 }
 
 export function groupDuplicateRequests(
