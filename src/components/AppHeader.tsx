@@ -3,7 +3,6 @@ import {
   Moon,
   PanelRight,
   Settings2,
-  ShieldAlert,
   Sun,
 } from "lucide-react";
 import type { DisplayMode } from "../lib/analyzer-settings";
@@ -32,13 +31,17 @@ export default function AppHeader({
   return (
     <header className="flex items-center gap-2.5">
       <div
-        className={`rounded-xl border p-2.5 ${
+        className={`flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-xl ${
           isDark
-            ? "border-violet-400/20 bg-violet-500/10 text-violet-300"
-            : "border-violet-200 bg-violet-50 text-violet-600"
+            ? "bg-violet-500/10"
+            : "bg-violet-50"
         }`}
       >
-        <ShieldAlert className="h-5 w-5" />
+        <img
+          src="/logo.png"
+          alt="API Pulse logo"
+          className="h-full w-full object-contain"
+        />
       </div>
 
       <div className="min-w-0 flex-1">

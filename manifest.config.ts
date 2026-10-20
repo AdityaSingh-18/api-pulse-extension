@@ -5,6 +5,12 @@ export default defineManifest({
   name: "API Pulse",
   version: "0.1.0",
   description: "Monitor API failures and page load performance.",
+  icons: {
+    "16": "logo.png",
+    "32": "logo.png",
+    "48": "logo.png",
+    "128": "logo.png",
+  },
   permissions: [
     "webRequest",
     "storage",
